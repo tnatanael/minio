@@ -300,6 +300,7 @@ func (cr *s3ChunkedReader) Read(buf []byte) (n int, err error) {
 			hashedChunk := hex.EncodeToString(cr.chunkSHA256Writer.Sum(nil))
 			// Calculate the chunk signature.
 			newSignature := getChunkSignature(cr.cred, cr.seedSignature, cr.region, cr.seedDate, hashedChunk)
+			// S3GW: Ignore verification errors...
 			/*
 				if !compareSignatureV4(cr.chunkSignature, newSignature) {
 					// Chunk signature doesn't match we return signature does not match.
