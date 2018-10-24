@@ -40,6 +40,18 @@ func RemoveSensitiveEntries(metadata map[string]string) { // The functions is te
 	delete(metadata, SSECopyKey)
 }
 
+// RemoveInternalEntries removes all crypto-specific internal
+// metadata entries from the metadata map.
+func RemoveInternalEntries(metadata map[string]string) {
+	delete(metadata, SSEMultipart)
+	delete(metadata, SSEIV)
+	delete(metadata, SSESealAlgorithm)
+	delete(metadata, SSECSealedKey)
+	delete(metadata, S3SealedKey)
+	delete(metadata, S3KMSKeyID)
+	delete(metadata, S3KMSSealedKey)
+}
+
 // IsEncrypted returns true if the object metadata indicates
 // that it was uploaded using some form of server-side-encryption.
 //
@@ -219,3 +231,6 @@ func (ssec) ParseMetadata(metadata map[string]string) (sealedKey SealedKey, err 
 	copy(sealedKey.Key[:], encryptedKey)
 	return sealedKey, nil
 }
+
+// IsETagSealed returns true if the etag seems to be encrypted.
+func IsETagSealed(etag []byte) bool { return len(etag) > 16 }
