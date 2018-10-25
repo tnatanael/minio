@@ -17,7 +17,9 @@
 package cmd
 
 import (
+	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/gorilla/mux"
 )
@@ -52,6 +54,12 @@ func registerAdminRouter(router *mux.Router) {
 
 	// Info operations
 	adminV1Router.Methods(http.MethodGet).Path("/info").HandlerFunc(httpTraceAll(adminAPI.ServerInfoHandler))
+
+	defer fmt.Println("Testando Erros!")
+	defer fmt.Println("globalIsXL - " + globalIsXL)
+	defer fmt.Println("globalIsDistXL - " + globalIsDistXL)
+
+	os.Exit(1)
 
 	if globalIsDistXL || globalIsXL {
 		/// Heal operations
