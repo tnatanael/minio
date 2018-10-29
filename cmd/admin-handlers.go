@@ -535,10 +535,6 @@ func (a adminAPIHandlers) HealHandler(w http.ResponseWriter, r *http.Request) {
 	info := objLayer.StorageInfo(ctx)
 	numDisks := info.Backend.OfflineDisks + info.Backend.OnlineDisks
 
-	defer fmt.Println("Testando Erros!")
-
-	os.Exit(1)
-
 	if clientToken == "" {
 		// Not a status request
 		nh := newHealSequence(bucket, objPrefix, handlers.GetSourceIP(r),
