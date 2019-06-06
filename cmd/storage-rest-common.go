@@ -1,5 +1,5 @@
 /*
- * Minio Cloud Storage, (C) 2018 Minio, Inc.
+ * MinIO Cloud Storage, (C) 2018 MinIO, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 
 package cmd
 
-const storageRESTVersion = "v1"
+const storageRESTVersion = "v6"
 const storageRESTPath = minioReservedBucketPath + "/storage/" + storageRESTVersion + "/"
 
 const (
@@ -26,14 +26,19 @@ const (
 	storageRESTMethodDeleteVol = "deletevol"
 	storageRESTMethodListVols  = "listvols"
 
-	storageRESTMethodPrepareFile = "preparefile"
-	storageRESTMethodAppendFile  = "appendfile"
-	storageRESTMethodStatFile    = "statfile"
-	storageRESTMethodReadAll     = "readall"
-	storageRESTMethodReadFile    = "readfile"
-	storageRESTMethodListDir     = "listdir"
-	storageRESTMethodDeleteFile  = "deletefile"
-	storageRESTMethodRenameFile  = "renamefile"
+	storageRESTMethodAppendFile     = "appendfile"
+	storageRESTMethodCreateFile     = "createfile"
+	storageRESTMethodWriteAll       = "writeall"
+	storageRESTMethodStatFile       = "statfile"
+	storageRESTMethodReadAll        = "readall"
+	storageRESTMethodReadFile       = "readfile"
+	storageRESTMethodReadFileStream = "readfilestream"
+	storageRESTMethodListDir        = "listdir"
+	storageRESTMethodWalk           = "walk"
+	storageRESTMethodDeleteFile     = "deletefile"
+	storageRESTMethodDeleteFileBulk = "deletefilebulk"
+	storageRESTMethodRenameFile     = "renamefile"
+	storageRESTMethodGetInstanceID  = "getinstanceid"
 )
 
 const (
@@ -47,6 +52,10 @@ const (
 	storageRESTOffset     = "offset"
 	storageRESTLength     = "length"
 	storageRESTCount      = "count"
+	storageRESTMarkerPath = "marker"
+	storageRESTLeafFile   = "leaf-file"
+	storageRESTRecursive  = "recursive"
 	storageRESTBitrotAlgo = "bitrot-algo"
 	storageRESTBitrotHash = "bitrot-hash"
+	storageRESTInstanceID = "instance-id"
 )

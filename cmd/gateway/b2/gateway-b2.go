@@ -1,5 +1,5 @@
 /*
- * Minio Cloud Storage, (C) 2017, 2018 Minio, Inc.
+ * MinIO Cloud Storage, (C) 2017, 2018 MinIO, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ import (
 
 	b2 "github.com/minio/blazer/base"
 	"github.com/minio/cli"
-	miniogopolicy "github.com/minio/minio-go/pkg/policy"
+	miniogopolicy "github.com/minio/minio-go/v6/pkg/policy"
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/auth"
 	h2 "github.com/minio/minio/pkg/hash"
@@ -67,7 +67,7 @@ ENVIRONMENT VARIABLES:
      MINIO_BROWSER: To disable web browser access, set this value to "off".
 
   DOMAIN:
-     MINIO_DOMAIN: To enable virtual-host-style requests, set this value to Minio host domain name.
+     MINIO_DOMAIN: To enable virtual-host-style requests, set this value to MinIO host domain name.
 
   CACHE:
      MINIO_CACHE_DRIVES: List of mounted drives or directories delimited by ";".
@@ -77,22 +77,22 @@ ENVIRONMENT VARIABLES:
 
 EXAMPLES:
   1. Start minio gateway server for B2 backend.
-     $ export MINIO_ACCESS_KEY=accountID
-     $ export MINIO_SECRET_KEY=applicationKey
-     $ {{.HelpName}}
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_ACCESS_KEY{{.AssignmentOperator}}accountID
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_SECRET_KEY{{.AssignmentOperator}}applicationKey
+     {{.Prompt}} {{.HelpName}}
 
   2. Start minio gateway server for B2 backend with edge caching enabled.
-     $ export MINIO_ACCESS_KEY=accountID
-     $ export MINIO_SECRET_KEY=applicationKey
-     $ export MINIO_CACHE_DRIVES="/mnt/drive1;/mnt/drive2;/mnt/drive3;/mnt/drive4"
-     $ export MINIO_CACHE_EXCLUDE="bucket1/*;*.png"
-     $ export MINIO_CACHE_EXPIRY=40
-     $ export MINIO_CACHE_MAXUSE=80
-     $ {{.HelpName}}
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_ACCESS_KEY{{.AssignmentOperator}}accountID
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_SECRET_KEY{{.AssignmentOperator}}applicationKey
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_CACHE_DRIVES{{.AssignmentOperator}}"/mnt/drive1;/mnt/drive2;/mnt/drive3;/mnt/drive4"
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_CACHE_EXCLUDE{{.AssignmentOperator}}"bucket1/*;*.png"
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_CACHE_EXPIRY{{.AssignmentOperator}}40
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_CACHE_MAXUSE{{.AssignmentOperator}}80
+     {{.Prompt}} {{.HelpName}}
 `
 	minio.RegisterGatewayCommand(cli.Command{
 		Name:               b2Backend,
-		Usage:              "Backblaze B2.",
+		Usage:              "Backblaze B2",
 		Action:             b2GatewayMain,
 		CustomHelpTemplate: b2GatewayTemplate,
 		HideHelpCommand:    true,
@@ -104,7 +104,7 @@ func b2GatewayMain(ctx *cli.Context) {
 	minio.StartGateway(ctx, &B2{})
 }
 
-// B2 implements Minio Gateway
+// B2 implements MinIO Gateway
 type B2 struct{}
 
 // Name implements Gateway interface.
@@ -133,7 +133,7 @@ func (g *B2) Production() bool {
 	return true
 }
 
-// b2Object implements gateway for Minio and BackBlaze B2 compatible object storage servers.
+// b2Object implements gateway for MinIO and BackBlaze B2 compatible object storage servers.
 type b2Objects struct {
 	minio.GatewayUnsupported
 	mu       sync.Mutex
@@ -417,7 +417,7 @@ func (l *b2Objects) GetObjectNInfo(ctx context.Context, bucket, object string, r
 	// Setup cleanup function to cause the above go-routine to
 	// exit in case of partial read
 	pipeCloser := func() { pr.Close() }
-	return minio.NewGetObjectReaderFromReader(pr, objInfo, pipeCloser), nil
+	return minio.NewGetObjectReaderFromReader(pr, objInfo, opts.CheckCopyPrecondFn, pipeCloser)
 }
 
 // GetObject reads an object from B2. Supports additional
@@ -534,13 +534,15 @@ func (nb *Reader) Read(p []byte) (int, error) {
 }
 
 // PutObject uploads the single upload to B2 backend by using *b2_upload_file* API, uploads upto 5GiB.
-func (l *b2Objects) PutObject(ctx context.Context, bucket string, object string, data *h2.Reader, metadata map[string]string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+func (l *b2Objects) PutObject(ctx context.Context, bucket string, object string, r *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+	data := r.Reader
+
 	bkt, err := l.Bucket(ctx, bucket)
 	if err != nil {
 		return objInfo, err
 	}
-	contentType := metadata["content-type"]
-	delete(metadata, "content-type")
+	contentType := opts.UserDefined["content-type"]
+	delete(opts.UserDefined, "content-type")
 
 	var u *b2.URL
 	u, err = bkt.GetUploadURL(l.ctx)
@@ -551,7 +553,7 @@ func (l *b2Objects) PutObject(ctx context.Context, bucket string, object string,
 
 	hr := newB2Reader(data, data.Size())
 	var f *b2.File
-	f, err = u.UploadFile(l.ctx, hr, int(hr.Size()), object, contentType, sha1AtEOF, metadata)
+	f, err = u.UploadFile(l.ctx, hr, int(hr.Size()), object, contentType, sha1AtEOF, opts.UserDefined)
 	if err != nil {
 		logger.LogIf(ctx, err)
 		return objInfo, b2ToObjectError(err, bucket, object)
@@ -591,6 +593,14 @@ func (l *b2Objects) DeleteObject(ctx context.Context, bucket string, object stri
 	err = bkt.File(reader.ID, object).DeleteFileVersion(l.ctx)
 	logger.LogIf(ctx, err)
 	return b2ToObjectError(err, bucket, object)
+}
+
+func (l *b2Objects) DeleteObjects(ctx context.Context, bucket string, objects []string) ([]error, error) {
+	errs := make([]error, len(objects))
+	for idx, object := range objects {
+		errs[idx] = l.DeleteObject(ctx, bucket, object)
+	}
+	return errs, nil
 }
 
 // ListMultipartUploads lists all multipart uploads.
@@ -634,16 +644,16 @@ func (l *b2Objects) ListMultipartUploads(ctx context.Context, bucket string, pre
 // Each large file must consist of at least 2 parts, and all of the parts except the
 // last one must be at least 5MB in size. The last part must contain at least one byte.
 // For more information - https://www.backblaze.com/b2/docs/large_files.html
-func (l *b2Objects) NewMultipartUpload(ctx context.Context, bucket string, object string, metadata map[string]string, o minio.ObjectOptions) (string, error) {
+func (l *b2Objects) NewMultipartUpload(ctx context.Context, bucket string, object string, opts minio.ObjectOptions) (string, error) {
 	var uploadID string
 	bkt, err := l.Bucket(ctx, bucket)
 	if err != nil {
 		return uploadID, err
 	}
 
-	contentType := metadata["content-type"]
-	delete(metadata, "content-type")
-	lf, err := bkt.StartLargeFile(l.ctx, object, contentType, metadata)
+	contentType := opts.UserDefined["content-type"]
+	delete(opts.UserDefined, "content-type")
+	lf, err := bkt.StartLargeFile(l.ctx, object, contentType, opts.UserDefined)
 	if err != nil {
 		logger.LogIf(ctx, err)
 		return uploadID, b2ToObjectError(err, bucket, object)
@@ -653,7 +663,8 @@ func (l *b2Objects) NewMultipartUpload(ctx context.Context, bucket string, objec
 }
 
 // PutObjectPart puts a part of object in bucket, uses B2's LargeFile upload API.
-func (l *b2Objects) PutObjectPart(ctx context.Context, bucket string, object string, uploadID string, partID int, data *h2.Reader, opts minio.ObjectOptions) (pi minio.PartInfo, err error) {
+func (l *b2Objects) PutObjectPart(ctx context.Context, bucket string, object string, uploadID string, partID int, r *minio.PutObjReader, opts minio.ObjectOptions) (pi minio.PartInfo, err error) {
+	data := r.Reader
 	bkt, err := l.Bucket(ctx, bucket)
 	if err != nil {
 		return pi, err
@@ -681,7 +692,7 @@ func (l *b2Objects) PutObjectPart(ctx context.Context, bucket string, object str
 }
 
 // ListObjectParts returns all object parts for specified object in specified bucket, uses B2's LargeFile upload API.
-func (l *b2Objects) ListObjectParts(ctx context.Context, bucket string, object string, uploadID string, partNumberMarker int, maxParts int) (lpi minio.ListPartsInfo, err error) {
+func (l *b2Objects) ListObjectParts(ctx context.Context, bucket string, object string, uploadID string, partNumberMarker int, maxParts int, opts minio.ObjectOptions) (lpi minio.ListPartsInfo, err error) {
 	bkt, err := l.Bucket(ctx, bucket)
 	if err != nil {
 		return lpi, err
@@ -726,7 +737,7 @@ func (l *b2Objects) AbortMultipartUpload(ctx context.Context, bucket string, obj
 }
 
 // CompleteMultipartUpload completes ongoing multipart upload and finalizes object, uses B2's LargeFile upload API.
-func (l *b2Objects) CompleteMultipartUpload(ctx context.Context, bucket string, object string, uploadID string, uploadedParts []minio.CompletePart) (oi minio.ObjectInfo, err error) {
+func (l *b2Objects) CompleteMultipartUpload(ctx context.Context, bucket string, object string, uploadID string, uploadedParts []minio.CompletePart, opts minio.ObjectOptions) (oi minio.ObjectInfo, err error) {
 	bkt, err := l.Bucket(ctx, bucket)
 	if err != nil {
 		return oi, err

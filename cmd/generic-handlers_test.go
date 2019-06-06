@@ -1,5 +1,5 @@
 /*
- * Minio Cloud Storage, (C) 2016 Minio, Inc.
+ * MinIO Cloud Storage, (C) 2016 MinIO, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -78,9 +78,16 @@ func TestGuessIsRPC(t *testing.T) {
 	if guessIsRPCReq(nil) {
 		t.Fatal("Unexpected return for nil request")
 	}
+
+	u, err := url.Parse("http://localhost:9000/minio/lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	r := &http.Request{
 		Proto:  "HTTP/1.0",
 		Method: http.MethodPost,
+		URL:    u,
 	}
 	if !guessIsRPCReq(r) {
 		t.Fatal("Test shouldn't fail for a possible net/rpc request.")
@@ -96,18 +103,25 @@ func TestGuessIsRPC(t *testing.T) {
 
 // Tests browser request guess function.
 func TestGuessIsBrowser(t *testing.T) {
+	globalIsBrowserEnabled = true
 	if guessIsBrowserReq(nil) {
 		t.Fatal("Unexpected return for nil request")
 	}
 	r := &http.Request{
 		Header: http.Header{},
+		URL:    &url.URL{},
 	}
 	r.Header.Set("User-Agent", "Mozilla")
 	if !guessIsBrowserReq(r) {
-		t.Fatal("Test shouldn't fail for a possible browser request.")
+		t.Fatal("Test shouldn't fail for a possible browser request anonymous user")
+	}
+	r.Header.Set("Authorization", "Bearer token")
+	if !guessIsBrowserReq(r) {
+		t.Fatal("Test shouldn't fail for a possible browser request JWT user")
 	}
 	r = &http.Request{
 		Header: http.Header{},
+		URL:    &url.URL{},
 	}
 	r.Header.Set("User-Agent", "mc")
 	if guessIsBrowserReq(r) {

@@ -1,5 +1,5 @@
 /*
- * Minio Cloud Storage, (C) 2018 Minio, Inc.
+ * MinIO Cloud Storage, (C) 2018 MinIO, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/minio/minio-go/pkg/set"
+	"github.com/minio/minio-go/v6/pkg/set"
 )
 
 // ValidateFilterRuleValue - checks if given value is filter rule value or not.
@@ -191,19 +191,18 @@ func (q Queue) ToRulesMap() RulesMap {
 
 // Unused.  Available for completion.
 type lambda struct {
-	common
 	ARN string `xml:"CloudFunction"`
 }
 
 // Unused. Available for completion.
 type topic struct {
-	common
 	ARN string `xml:"Topic" json:"Topic"`
 }
 
 // Config - notification configuration described in
 // http://docs.aws.amazon.com/AmazonS3/latest/dev/NotificationHowTo.html
 type Config struct {
+	XMLNS      string   `xml:"xmlns,attr,omitempty"`
 	XMLName    xml.Name `xml:"NotificationConfiguration"`
 	QueueList  []Queue  `xml:"QueueConfiguration,omitempty"`
 	LambdaList []lambda `xml:"CloudFunctionConfiguration,omitempty"`

@@ -1,5 +1,5 @@
 /*
- * Minio Cloud Storage, (C) 2016, 2017 Minio, Inc.
+ * MinIO Cloud Storage, (C) 2016, 2017 MinIO, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,6 +47,7 @@ var (
 	errChangeCredNotAllowed = errors.New("Changing access key and secret key not allowed")
 	errAuthentication       = errors.New("Authentication failed, check your access credentials")
 	errNoAuthToken          = errors.New("JWT token missing")
+	errIncorrectCreds       = errors.New("Current access key or secret key is incorrect")
 )
 
 func authenticateJWTUsers(accessKey, secretKey string, expiry time.Duration) (string, error) {
@@ -108,34 +109,6 @@ func authenticateWeb(accessKey, secretKey string) (string, error) {
 
 func authenticateURL(accessKey, secretKey string) (string, error) {
 	return authenticateJWTUsers(accessKey, secretKey, defaultURLJWTExpiry)
-}
-
-func stsTokenCallback(jwtToken *jwtgo.Token) (interface{}, error) {
-	if _, ok := jwtToken.Method.(*jwtgo.SigningMethodHMAC); !ok {
-		return nil, fmt.Errorf("Unexpected signing method: %v", jwtToken.Header["alg"])
-	}
-
-	if err := jwtToken.Claims.Valid(); err != nil {
-		return nil, errAuthentication
-	}
-	if claims, ok := jwtToken.Claims.(jwtgo.MapClaims); ok {
-		accessKey, ok := claims["accessKey"].(string)
-		if !ok {
-			return nil, errInvalidAccessKeyID
-		}
-		if accessKey == globalServerConfig.GetCredential().AccessKey {
-			return []byte(globalServerConfig.GetCredential().SecretKey), nil
-		}
-		if globalIAMSys == nil {
-			return nil, errInvalidAccessKeyID
-		}
-		_, ok = globalIAMSys.GetUser(accessKey)
-		if !ok {
-			return nil, errInvalidAccessKeyID
-		}
-		return []byte(globalServerConfig.GetCredential().SecretKey), nil
-	}
-	return nil, errAuthentication
 }
 
 // Callback function used for parsing

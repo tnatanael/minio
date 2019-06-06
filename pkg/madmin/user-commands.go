@@ -1,5 +1,5 @@
 /*
- * Minio Cloud Storage, (C) 2018 Minio, Inc.
+ * MinIO Cloud Storage, (C) 2018 MinIO, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+
+	"github.com/minio/minio/pkg/auth"
 )
 
 // AccountStatus - account status.
@@ -97,6 +99,15 @@ func (adm *AdminClient) ListUsers() (map[string]UserInfo, error) {
 
 // SetUser - sets a user info.
 func (adm *AdminClient) SetUser(accessKey, secretKey string, status AccountStatus) error {
+
+	if !auth.IsAccessKeyValid(accessKey) {
+		return auth.ErrInvalidAccessKeyLength
+	}
+
+	if !auth.IsSecretKeyValid(secretKey) {
+		return auth.ErrInvalidSecretKeyLength
+	}
+
 	data, err := json.Marshal(UserInfo{
 		SecretKey: secretKey,
 		Status:    status,

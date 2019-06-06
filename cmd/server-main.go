@@ -1,5 +1,5 @@
 /*
- * Minio Cloud Storage, (C) 2015, 2016, 2017, 2018 Minio, Inc.
+ * MinIO Cloud Storage, (C) 2015, 2016, 2017, 2018 MinIO, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -40,14 +41,14 @@ func init() {
 var serverFlags = []cli.Flag{
 	cli.StringFlag{
 		Name:  "address",
-		Value: ":" + globalMinioPort,
-		Usage: "Bind to a specific ADDRESS:PORT, ADDRESS can be an IP or hostname.",
+		Value: ":" + globalMinioDefaultPort,
+		Usage: "bind to a specific ADDRESS:PORT, ADDRESS can be an IP or hostname",
 	},
 }
 
 var serverCmd = cli.Command{
 	Name:   "server",
-	Usage:  "Start object storage server.",
+	Usage:  "start object storage server",
 	Flags:  append(serverFlags, globalFlags...),
 	Action: serverMain,
 	CustomHelpTemplate: `NAME:
@@ -82,14 +83,14 @@ ENVIRONMENT VARIABLES:
      MINIO_CACHE_MAXUSE: Maximum permitted usage of the cache in percentage (0-100).
 
   DOMAIN:
-     MINIO_DOMAIN: To enable virtual-host-style requests, set this value to Minio host domain name.
+     MINIO_DOMAIN: To enable virtual-host-style requests, set this value to MinIO host domain name.
 
   WORM:
      MINIO_WORM: To turn on Write-Once-Read-Many in server, set this value to "on".
 
   BUCKET-DNS:
-     MINIO_DOMAIN:    To enable bucket DNS requests, set this value to Minio host domain name.
-     MINIO_PUBLIC_IPS: To enable bucket DNS requests, set this value to list of Minio host public IP(s) delimited by ",".
+     MINIO_DOMAIN:    To enable bucket DNS requests, set this value to MinIO host domain name.
+     MINIO_PUBLIC_IPS: To enable bucket DNS requests, set this value to list of MinIO host public IP(s) delimited by ",".
      MINIO_ETCD_ENDPOINTS: To enable bucket DNS requests, set this value to list of etcd endpoints delimited by ",".
 
    KMS:
@@ -100,36 +101,36 @@ ENVIRONMENT VARIABLES:
 
 EXAMPLES:
   1. Start minio server on "/home/shared" directory.
-     $ {{.HelpName}} /home/shared
+     {{.Prompt}} {{.HelpName}} /home/shared
 
   2. Start minio server bound to a specific ADDRESS:PORT.
-     $ {{.HelpName}} --address 192.168.1.101:9000 /home/shared
+     {{.Prompt}} {{.HelpName}} --address 192.168.1.101:9000 /home/shared
 
   3. Start minio server and enable virtual-host-style requests.
-     $ export MINIO_DOMAIN=mydomain.com
-     $ {{.HelpName}} --address mydomain.com:9000 /mnt/export
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_DOMAIN{{.AssignmentOperator}}mydomain.com
+     {{.Prompt}} {{.HelpName}} --address mydomain.com:9000 /mnt/export
 
   4. Start erasure coded minio server on a node with 64 drives.
-     $ {{.HelpName}} /mnt/export{1...64}
+     {{.Prompt}} {{.HelpName}} /mnt/export{1...64}
 
-  5. Start distributed minio server on an 8 node setup with 8 drives each. Run following command on all the 8 nodes.
-     $ export MINIO_ACCESS_KEY=minio
-     $ export MINIO_SECRET_KEY=miniostorage
-     $ {{.HelpName}} http://node{1...8}.example.com/mnt/export/{1...8}
+  5. Start distributed minio server on an 32 node setup with 32 drives each. Run following command on all the 32 nodes.
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_ACCESS_KEY{{.AssignmentOperator}}minio
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_SECRET_KEY{{.AssignmentOperator}}miniostorage
+     {{.Prompt}} {{.HelpName}} http://node{1...32}.example.com/mnt/export/{1...32}
 
   6. Start minio server with edge caching enabled.
-     $ export MINIO_CACHE_DRIVES="/mnt/drive1;/mnt/drive2;/mnt/drive3;/mnt/drive4"
-     $ export MINIO_CACHE_EXCLUDE="bucket1/*;*.png"
-     $ export MINIO_CACHE_EXPIRY=40
-     $ export MINIO_CACHE_MAXUSE=80
-     $ {{.HelpName}} /home/shared
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_CACHE_DRIVES{{.AssignmentOperator}}"/mnt/drive1;/mnt/drive2;/mnt/drive3;/mnt/drive4"
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_CACHE_EXCLUDE{{.AssignmentOperator}}"bucket1/*;*.png"
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_CACHE_EXPIRY{{.AssignmentOperator}}40
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_CACHE_MAXUSE{{.AssignmentOperator}}80
+     {{.Prompt}} {{.HelpName}} /home/shared
 
   7. Start minio server with KMS enabled.
-     $ export MINIO_SSE_VAULT_APPROLE_ID=9b56cc08-8258-45d5-24a3-679876769126
-     $ export MINIO_SSE_VAULT_APPROLE_SECRET=4e30c52f-13e4-a6f5-0763-d50e8cb4321f
-     $ export MINIO_SSE_VAULT_ENDPOINT=https://vault-endpoint-ip:8200
-     $ export MINIO_SSE_VAULT_KEY_NAME=my-minio-key
-     $ {{.HelpName}} /home/shared
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_SSE_VAULT_APPROLE_ID{{.AssignmentOperator}}9b56cc08-8258-45d5-24a3-679876769126
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_SSE_VAULT_APPROLE_SECRET{{.AssignmentOperator}}4e30c52f-13e4-a6f5-0763-d50e8cb4321f
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_SSE_VAULT_ENDPOINT{{.AssignmentOperator}}https://vault-endpoint-ip:8200
+     {{.Prompt}} {{.EnvVarSetCommand}} MINIO_SSE_VAULT_KEY_NAME{{.AssignmentOperator}}my-minio-key
+     {{.Prompt}} {{.HelpName}} /home/shared
 `,
 }
 
@@ -147,9 +148,7 @@ func serverHandleCmdArgs(ctx *cli.Context) {
 	// Handle common command args.
 	handleCommonCmdArgs(ctx)
 
-	// Server address.
-	serverAddr := ctx.String("address")
-	logger.FatalIf(CheckLocalServerAddr(serverAddr), "Unable to validate passed arguments")
+	logger.FatalIf(CheckLocalServerAddr(globalCLIContext.Addr), "Unable to validate passed arguments")
 
 	var setupType SetupType
 	var err error
@@ -162,11 +161,13 @@ func serverHandleCmdArgs(ctx *cli.Context) {
 
 	endpoints := strings.Fields(os.Getenv("MINIO_ENDPOINTS"))
 	if len(endpoints) > 0 {
-		globalMinioAddr, globalEndpoints, setupType, globalXLSetCount, globalXLSetDriveCount, err = createServerEndpoints(serverAddr, endpoints...)
+		globalMinioAddr, globalEndpoints, setupType, globalXLSetCount, globalXLSetDriveCount, err = createServerEndpoints(globalCLIContext.Addr, endpoints...)
 	} else {
-		globalMinioAddr, globalEndpoints, setupType, globalXLSetCount, globalXLSetDriveCount, err = createServerEndpoints(serverAddr, ctx.Args()...)
+		globalMinioAddr, globalEndpoints, setupType, globalXLSetCount, globalXLSetDriveCount, err = createServerEndpoints(globalCLIContext.Addr, ctx.Args()...)
 	}
 	logger.FatalIf(err, "Invalid command line arguments")
+
+	logger.LogIf(context.Background(), checkEndpointsSubOptimal(ctx, setupType, globalEndpoints))
 
 	globalMinioHost, globalMinioPort = mustSplitHostPort(globalMinioAddr)
 
@@ -201,31 +202,14 @@ func serverMain(ctx *cli.Context) {
 		cli.ShowCommandHelpAndExit(ctx, "server", 1)
 	}
 
+	signal.Notify(globalOSSignalCh, os.Interrupt, syscall.SIGTERM)
+
 	// Disable logging until server initialization is complete, any
 	// error during initialization will be shown as a fatal message
 	logger.Disable = true
 
-	// Get "json" flag from command line argument and
-	// enable json and quite modes if jason flag is turned on.
-	jsonFlag := ctx.IsSet("json") || ctx.GlobalIsSet("json")
-	if jsonFlag {
-		logger.EnableJSON()
-	}
-
-	// Get quiet flag from command line argument.
-	quietFlag := ctx.IsSet("quiet") || ctx.GlobalIsSet("quiet")
-	if quietFlag {
-		logger.EnableQuiet()
-	}
-
 	// Handle all server command args.
 	serverHandleCmdArgs(ctx)
-
-	// Handle all server environment vars.
-	serverHandleEnvVars()
-
-	// Create certs path.
-	logger.FatalIf(createConfigDir(), "Unable to initialize configuration files")
 
 	// Check and load TLS certificates.
 	var err error
@@ -233,8 +217,11 @@ func serverMain(ctx *cli.Context) {
 	logger.FatalIf(err, "Unable to load the TLS configuration")
 
 	// Check and load Root CAs.
-	globalRootCAs, err = getRootCAs(getCADir())
+	globalRootCAs, err = getRootCAs(globalCertsCADir.Get())
 	logger.FatalIf(err, "Failed to read root CAs (%v)", err)
+
+	// Handle all server environment vars.
+	serverHandleEnvVars()
 
 	// Is distributed setup, error out if no certificates are found for HTTPS endpoints.
 	if globalIsDistXL {
@@ -246,8 +233,8 @@ func serverMain(ctx *cli.Context) {
 		}
 	}
 
-	if !quietFlag {
-		// Check for new updates from dl.minio.io.
+	if !globalCLIContext.Quiet {
+		// Check for new updates from dl.min.io.
 		mode := globalMinioModeFS
 		if globalIsDistXL {
 			mode = globalMinioModeDistXL
@@ -310,9 +297,6 @@ func serverMain(ctx *cli.Context) {
 		logger.Fatal(uiErrUnexpectedError(err), "Unable to configure one of server's RPC services")
 	}
 
-	// Initialize Admin Peers inter-node communication only in distributed setup.
-	initGlobalAdminPeers(globalEndpoints)
-
 	var getCert certs.GetCertificateFunc
 	if globalTLSCerts != nil {
 		getCert = globalTLSCerts.GetCertificate
@@ -324,8 +308,6 @@ func serverMain(ctx *cli.Context) {
 	go func() {
 		globalHTTPServerErrorCh <- globalHTTPServer.Start()
 	}()
-
-	signal.Notify(globalOSSignalCh, os.Interrupt, syscall.SIGTERM)
 
 	newObject, err := newObjectLayer(globalEndpoints)
 	if err != nil {
@@ -381,7 +363,10 @@ func serverMain(ctx *cli.Context) {
 
 	// Initialize notification system.
 	if err = globalNotificationSys.Init(newObject); err != nil {
-		logger.Fatal(err, "Unable to initialize notification system")
+		logger.LogIf(context.Background(), err)
+	}
+	if globalAutoEncryption && !newObject.IsEncryptionSupported() {
+		logger.Fatal(errors.New("Invalid KMS configuration"), "auto-encryption is enabled but server does not support encryption")
 	}
 
 	globalObjLayerMutex.Lock()
@@ -389,8 +374,7 @@ func serverMain(ctx *cli.Context) {
 	globalObjLayerMutex.Unlock()
 
 	// Prints the formatted startup message once object layer is initialized.
-	apiEndpoints := getAPIEndpoints(globalMinioAddr)
-	printStartupMessage(apiEndpoints)
+	printStartupMessage(getAPIEndpoints())
 
 	// Set uptime time after object layer has initialized.
 	globalBootTime = UTCNow()

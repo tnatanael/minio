@@ -1,5 +1,5 @@
 /*
- * Minio Cloud Storage, (C) 2015, 2016, 2017 Minio, Inc.
+ * MinIO Cloud Storage, (C) 2015, 2016, 2017 MinIO, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,11 +17,17 @@
 package cmd
 
 import (
+	"bytes"
+	"context"
 	"crypto/hmac"
+	"encoding/hex"
+	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/minio/minio/cmd/logger"
+	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/sha256-simd"
 )
 
@@ -52,7 +58,18 @@ func skipContentSha256Cksum(r *http.Request) bool {
 }
 
 // Returns SHA256 for calculating canonical-request.
-func getContentSha256Cksum(r *http.Request) string {
+func getContentSha256Cksum(r *http.Request, stype serviceType) string {
+	if stype == serviceSTS {
+		payload, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			logger.CriticalIf(context.Background(), err)
+		}
+		sum256 := sha256.New()
+		sum256.Write(payload)
+		r.Body = ioutil.NopCloser(bytes.NewReader(payload))
+		return hex.EncodeToString(sum256.Sum(nil))
+	}
+
 	var (
 		defaultSha256Cksum string
 		v                  []string
@@ -102,19 +119,21 @@ func isValidRegion(reqRegion string, confRegion string) bool {
 
 // check if the access key is valid and recognized, additionally
 // also returns if the access key is owner/admin.
-func checkKeyValid(accessKey string) (bool, APIErrorCode) {
+func checkKeyValid(accessKey string) (auth.Credentials, bool, APIErrorCode) {
 	var owner = true
-	if globalServerConfig.GetCredential().AccessKey != accessKey {
+	var cred = globalServerConfig.GetCredential()
+	if cred.AccessKey != accessKey {
 		if globalIAMSys == nil {
-			return false, ErrInvalidAccessKeyID
+			return cred, false, ErrInvalidAccessKeyID
 		}
 		// Check if the access key is part of users credentials.
-		if _, ok := globalIAMSys.GetUser(accessKey); !ok {
-			return false, ErrInvalidAccessKeyID
+		var ok bool
+		if cred, ok = globalIAMSys.GetUser(accessKey); !ok {
+			return cred, false, ErrInvalidAccessKeyID
 		}
 		owner = false
 	}
-	return owner, ErrNone
+	return cred, owner, ErrNone
 }
 
 // sumHMAC calculate hmac between two input byte array.
@@ -127,6 +146,7 @@ func sumHMAC(key []byte, data []byte) []byte {
 // extractSignedHeaders extract signed headers from Authorization header
 func extractSignedHeaders(signedHeaders []string, r *http.Request) (http.Header, APIErrorCode) {
 	reqHeaders := r.Header
+	reqQueries := r.URL.Query()
 	// find whether "host" is part of list of signed headers.
 	// if not return ErrUnsignedHeaders. "host" is mandatory.
 	if !contains(signedHeaders, "host") {
@@ -137,6 +157,10 @@ func extractSignedHeaders(signedHeaders []string, r *http.Request) (http.Header,
 		// `host` will not be found in the headers, can be found in r.Host.
 		// but its alway necessary that the list of signed headers containing host in it.
 		val, ok := reqHeaders[http.CanonicalHeaderKey(header)]
+		if !ok {
+			// try to set headers from Query String
+			val, ok = reqQueries[header]
+		}
 		if ok {
 			for _, enc := range val {
 				extractedSignedHeaders.Add(header, enc)

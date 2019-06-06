@@ -1,5 +1,5 @@
 {
-	"version": "31",
+	"version": "33",
 	"credential": {
 		"accessKey": "36J9X8EZI4KEV1G7EHXA",
 		"secretKey": "ECk2uqOoNqvtJIMQ3WYugvmNPL_-zm3WcRqP5vUM",
@@ -64,6 +64,8 @@
 				"enable": false,
 				"brokers": null,
 				"topic": "",
+                                "queueDir": "",
+                                "queueLimit": 0,
 				"tls": {
 					"enable": false,
 					"skipVerify": false,
@@ -73,7 +75,7 @@
 					"enable": false,
 					"username": "",
 					"password": ""
-				}
+				}       
 			}
 		},
 		"mqtt": {
@@ -82,11 +84,12 @@
 				"broker": "",
 				"topic": "",
 				"qos": 0,
-				"clientId": "",
 				"username": "",
 				"password": "",
 				"reconnectInterval": 0,
-				"keepAliveInterval": 0
+				"keepAliveInterval": 0,
+				"queueDir": "",
+                                "queueLimit": 0
 			}
 		},
 		"mysql": {
@@ -115,9 +118,19 @@
 				"streaming": {
 					"enable": false,
 					"clusterID": "",
-					"clientID": "",
 					"async": false,
 					"maxPubAcksInflight": 0
+				}
+			}
+		},
+		"nsq": {
+			"1": {
+				"enable": false,
+				"nsqdAddress": "",
+				"topic": "",
+				"tls": {
+					"enable": false,
+					"skipVerify": true
 				}
 			}
 		},

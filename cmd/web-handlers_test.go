@@ -1,5 +1,5 @@
 /*
- * Minio Cloud Storage, (C) 2016, 2017, 2018 Minio, Inc.
+ * MinIO Cloud Storage, (C) 2016, 2017, 2018 MinIO, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ import (
 
 	jwtgo "github.com/dgrijalva/jwt-go"
 	humanize "github.com/dustin/go-humanize"
-	miniogopolicy "github.com/minio/minio-go/pkg/policy"
+	miniogopolicy "github.com/minio/minio-go/v6/pkg/policy"
 	"github.com/minio/minio/pkg/hash"
 	"github.com/minio/minio/pkg/policy"
 	"github.com/minio/minio/pkg/policy/condition"
@@ -120,7 +120,7 @@ func TestWriteWebErrorResponse(t *testing.T) {
 		recvDesc := buffer.Bytes()
 		// Check if the written desc is same as the one expected.
 		if !bytes.Equal(recvDesc, []byte(desc)) {
-			t.Errorf("Test %d: Unexpected response, expecting %s, got %s", i+1, desc, string(buffer.Bytes()))
+			t.Errorf("Test %d: Unexpected response, expecting %s, got %s", i+1, desc, buffer.String())
 		}
 		buffer.Reset()
 	}
@@ -189,9 +189,7 @@ func testStorageInfoWebHandler(obj ObjectLayer, instanceType string, t TestErrHa
 
 	rec := httptest.NewRecorder()
 
-	storageInfoRequest := AuthArgs{
-		RPCVersion: globalRPCAPIVersion,
-	}
+	storageInfoRequest := &WebGenericArgs{}
 	storageInfoReply := &StorageInfoRep{}
 	req, err := newTestWebRPCRequest("Web.StorageInfo", authorization, storageInfoRequest)
 	if err != nil {
@@ -224,9 +222,7 @@ func testServerInfoWebHandler(obj ObjectLayer, instanceType string, t TestErrHan
 
 	rec := httptest.NewRecorder()
 
-	serverInfoRequest := AuthArgs{
-		RPCVersion: globalRPCAPIVersion,
-	}
+	serverInfoRequest := &WebGenericArgs{}
 	serverInfoReply := &ServerInfoRep{}
 	req, err := newTestWebRPCRequest("Web.ServerInfo", authorization, serverInfoRequest)
 	if err != nil {
@@ -334,13 +330,13 @@ func testDeleteBucketWebHandler(obj ObjectLayer, instanceType string, t TestErrH
 		// Empty string = no error
 		expect string
 	}{
-		{"", false, token, "The specified bucket  does not exist."},
+		{"", false, token, "The specified bucket is not valid"},
 		{".", false, "auth", "Authentication failed"},
-		{".", false, token, "The specified bucket . does not exist."},
-		{"..", false, token, "The specified bucket .. does not exist."},
-		{"ab", false, token, "The specified bucket ab does not exist."},
+		{".", false, token, "The specified bucket is not valid"},
+		{"..", false, token, "The specified bucket is not valid"},
+		{"ab", false, token, "The specified bucket is not valid"},
 		{"minio", false, "false token", "Authentication failed"},
-		{"minio", false, token, "specified bucket minio does not exist"},
+		{"minio", false, token, "The specified bucket is not valid"},
 		{bucketName, false, token, ""},
 		{bucketName, true, token, "Bucket not empty"},
 		{bucketName, false, "", "JWT token missing"},
@@ -349,7 +345,7 @@ func testDeleteBucketWebHandler(obj ObjectLayer, instanceType string, t TestErrH
 	for _, test := range testCases {
 		if test.initWithObject {
 			data := bytes.NewBufferString("hello")
-			_, err = obj.PutObject(context.Background(), test.bucketName, "object", mustGetHashReader(t, data, int64(data.Len()), "", ""), nil, opts)
+			_, err = obj.PutObject(context.Background(), test.bucketName, "object", mustGetPutObjReader(t, data, int64(data.Len()), "", ""), opts)
 			// _, err = obj.PutObject(test.bucketName, "object", int64(data.Len()), data, nil, "")
 			if err != nil {
 				t.Fatalf("could not put object to %s, %s", test.bucketName, err.Error())
@@ -485,29 +481,29 @@ func testListObjectsWebHandler(obj ObjectLayer, instanceType string, t TestErrHa
 
 	data := bytes.Repeat([]byte("a"), objectSize)
 	metadata := map[string]string{"etag": "c9a34cfc85d982698c6ac89f76071abd"}
-	_, err = obj.PutObject(context.Background(), bucketName, objectName, mustGetHashReader(t, bytes.NewReader(data), int64(len(data)), metadata["etag"], ""), metadata, ObjectOptions{})
+	_, err = obj.PutObject(context.Background(), bucketName, objectName, mustGetPutObjReader(t, bytes.NewReader(data), int64(len(data)), metadata["etag"], ""), ObjectOptions{UserDefined: metadata})
 
 	if err != nil {
 		t.Fatalf("Was not able to upload an object, %v", err)
 	}
 
-	test := func(token string) (error, *ListObjectsRep) {
+	test := func(token string) (*ListObjectsRep, error) {
 		listObjectsRequest := ListObjectsArgs{BucketName: bucketName, Prefix: ""}
 		listObjectsReply := &ListObjectsRep{}
 		var req *http.Request
 		req, err = newTestWebRPCRequest("Web.ListObjects", token, listObjectsRequest)
 		if err != nil {
-			t.Fatalf("Failed to create HTTP request: <ERROR> %v", err)
+			return nil, err
 		}
 		apiRouter.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
-			return fmt.Errorf("Expected the response status to be 200, but instead found `%d`", rec.Code), listObjectsReply
+			return listObjectsReply, fmt.Errorf("Expected the response status to be 200, but instead found `%d`", rec.Code)
 		}
 		err = getTestWebRPCResponse(rec, &listObjectsReply)
 		if err != nil {
-			return err, listObjectsReply
+			return listObjectsReply, err
 		}
-		return nil, listObjectsReply
+		return listObjectsReply, nil
 	}
 	verifyReply := func(reply *ListObjectsRep) {
 		if len(reply.Objects) == 0 {
@@ -522,14 +518,14 @@ func testListObjectsWebHandler(obj ObjectLayer, instanceType string, t TestErrHa
 	}
 
 	// Authenticated ListObjects should succeed.
-	err, reply := test(authorization)
+	reply, err := test(authorization)
 	if err != nil {
 		t.Fatal(err)
 	}
 	verifyReply(reply)
 
 	// Unauthenticated ListObjects should fail.
-	err, _ = test("")
+	_, err = test("")
 	if err == nil {
 		t.Fatalf("Expected error `%s`", err)
 	}
@@ -539,8 +535,8 @@ func testListObjectsWebHandler(obj ObjectLayer, instanceType string, t TestErrHa
 		Statements: []policy.Statement{policy.NewStatement(
 			policy.Allow,
 			policy.NewPrincipal("*"),
-			policy.NewActionSet(policy.GetObjectAction),
-			policy.NewResourceSet(policy.NewResource(bucketName, "*")),
+			policy.NewActionSet(policy.ListBucketAction),
+			policy.NewResourceSet(policy.NewResource(bucketName, "")),
 			condition.NewFunctions(),
 		)},
 	}
@@ -552,7 +548,7 @@ func testListObjectsWebHandler(obj ObjectLayer, instanceType string, t TestErrHa
 	defer globalPolicySys.Remove(bucketName)
 
 	// Unauthenticated ListObjects with READ bucket policy should succeed.
-	err, reply = test("")
+	reply, err = test("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -589,14 +585,14 @@ func testRemoveObjectWebHandler(obj ObjectLayer, instanceType string, t TestErrH
 
 	data := bytes.Repeat([]byte("a"), objectSize)
 	metadata := map[string]string{"etag": "c9a34cfc85d982698c6ac89f76071abd"}
-	_, err = obj.PutObject(context.Background(), bucketName, objectName, mustGetHashReader(t, bytes.NewReader(data), int64(len(data)), metadata["etag"], ""), metadata, ObjectOptions{})
+	_, err = obj.PutObject(context.Background(), bucketName, objectName, mustGetPutObjReader(t, bytes.NewReader(data), int64(len(data)), metadata["etag"], ""), ObjectOptions{UserDefined: metadata})
 	if err != nil {
 		t.Fatalf("Was not able to upload an object, %v", err)
 	}
 
 	objectName = "a/object"
 	metadata = map[string]string{"etag": "c9a34cfc85d982698c6ac89f76071abd"}
-	_, err = obj.PutObject(context.Background(), bucketName, objectName, mustGetHashReader(t, bytes.NewReader(data), int64(len(data)), metadata["etag"], ""), metadata, ObjectOptions{})
+	_, err = obj.PutObject(context.Background(), bucketName, objectName, mustGetPutObjReader(t, bytes.NewReader(data), int64(len(data)), metadata["etag"], ""), ObjectOptions{UserDefined: metadata})
 	if err != nil {
 		t.Fatalf("Was not able to upload an object, %v", err)
 	}
@@ -705,18 +701,21 @@ func testSetAuthWebHandler(obj ObjectLayer, instanceType string, t TestErrHandle
 	}
 
 	testCases := []struct {
-		username string
-		password string
-		success  bool
+		currentAccessKey string
+		currentSecretKey string
+		newAccessKey     string
+		newSecretKey     string
+		success          bool
 	}{
-		{"", "", false},
-		{"1", "1", false},
-		{"azerty", "foooooooooooooo", true},
+		{"", "", "", "", false},
+		{"1", "1", "1", "1", false},
+		{credentials.AccessKey, credentials.SecretKey, "azerty", "bar", false},
+		{credentials.AccessKey, credentials.SecretKey, "azerty", "foooooooooooooo", true},
 	}
 
 	// Iterating over the test cases, calling the function under test and asserting the response.
 	for i, testCase := range testCases {
-		setAuthRequest := SetAuthArgs{AccessKey: testCase.username, SecretKey: testCase.password}
+		setAuthRequest := SetAuthArgs{CurrentAccessKey: testCase.currentAccessKey, CurrentSecretKey: testCase.currentSecretKey, NewAccessKey: testCase.newAccessKey, NewSecretKey: testCase.newSecretKey}
 		setAuthReply := &SetAuthReply{}
 		req, err := newTestWebRPCRequest("Web.SetAuth", authorization, setAuthRequest)
 		if err != nil {
@@ -736,42 +735,6 @@ func testSetAuthWebHandler(obj ObjectLayer, instanceType string, t TestErrHandle
 		if testCase.success && setAuthReply.Token == "" {
 			t.Fatalf("Test %d: Failed to set auth keys", i+1)
 		}
-	}
-}
-
-// Wrapper for calling Get Auth Handler
-func TestWebHandlerGetAuth(t *testing.T) {
-	ExecObjectLayerTest(t, testGetAuthWebHandler)
-}
-
-// testGetAuthWebHandler - Test GetAuth web handler
-func testGetAuthWebHandler(obj ObjectLayer, instanceType string, t TestErrHandler) {
-	// Register the API end points with XL/FS object layer.
-	apiRouter := initTestWebRPCEndPoint(obj)
-	credentials := globalServerConfig.GetCredential()
-
-	rec := httptest.NewRecorder()
-	authorization, err := getWebRPCToken(apiRouter, credentials.AccessKey, credentials.SecretKey)
-	if err != nil {
-		t.Fatal("Cannot authenticate")
-	}
-
-	getAuthRequest := WebGenericArgs{}
-	getAuthReply := &GetAuthReply{}
-	req, err := newTestWebRPCRequest("Web.GetAuth", authorization, getAuthRequest)
-	if err != nil {
-		t.Fatalf("Failed to create HTTP request: <ERROR> %v", err)
-	}
-	apiRouter.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("Expected the response status to be 200, but instead found `%d`", rec.Code)
-	}
-	err = getTestWebRPCResponse(rec, &getAuthReply)
-	if err != nil {
-		t.Fatalf("Failed, %v", err)
-	}
-	if getAuthReply.AccessKey != credentials.AccessKey || getAuthReply.SecretKey != credentials.SecretKey {
-		t.Fatalf("Failed to get correct auth keys")
 	}
 }
 
@@ -987,7 +950,7 @@ func testDownloadWebHandler(obj ObjectLayer, instanceType string, t TestErrHandl
 
 	content := []byte("temporary file's content")
 	metadata := map[string]string{"etag": "01ce59706106fe5e02e7f55fffda7f34"}
-	_, err = obj.PutObject(context.Background(), bucketName, objectName, mustGetHashReader(t, bytes.NewReader(content), int64(len(content)), metadata["etag"], ""), metadata, ObjectOptions{})
+	_, err = obj.PutObject(context.Background(), bucketName, objectName, mustGetPutObjReader(t, bytes.NewReader(content), int64(len(content)), metadata["etag"], ""), ObjectOptions{UserDefined: metadata})
 	if err != nil {
 		t.Fatalf("Was not able to upload an object, %v", err)
 	}
@@ -1090,9 +1053,9 @@ func testWebHandlerDownloadZip(obj ObjectLayer, instanceType string, t TestErrHa
 		t.Fatalf("%s : %s", instanceType, err)
 	}
 
-	obj.PutObject(context.Background(), bucket, "a/one", mustGetHashReader(t, strings.NewReader(fileOne), int64(len(fileOne)), "", ""), nil, opts)
-	obj.PutObject(context.Background(), bucket, "a/b/two", mustGetHashReader(t, strings.NewReader(fileTwo), int64(len(fileTwo)), "", ""), nil, opts)
-	obj.PutObject(context.Background(), bucket, "a/c/three", mustGetHashReader(t, strings.NewReader(fileThree), int64(len(fileThree)), "", ""), nil, opts)
+	obj.PutObject(context.Background(), bucket, "a/one", mustGetPutObjReader(t, strings.NewReader(fileOne), int64(len(fileOne)), "", ""), opts)
+	obj.PutObject(context.Background(), bucket, "a/b/two", mustGetPutObjReader(t, strings.NewReader(fileTwo), int64(len(fileTwo)), "", ""), opts)
+	obj.PutObject(context.Background(), bucket, "a/c/three", mustGetPutObjReader(t, strings.NewReader(fileThree), int64(len(fileThree)), "", ""), opts)
 
 	test := func(token string) (int, []byte) {
 		rec := httptest.NewRecorder()
@@ -1177,7 +1140,7 @@ func testWebPresignedGetHandler(obj ObjectLayer, instanceType string, t TestErrH
 
 	data := bytes.Repeat([]byte("a"), objectSize)
 	metadata := map[string]string{"etag": "c9a34cfc85d982698c6ac89f76071abd"}
-	_, err = obj.PutObject(context.Background(), bucketName, objectName, mustGetHashReader(t, bytes.NewReader(data), int64(len(data)), metadata["etag"], ""), metadata, ObjectOptions{})
+	_, err = obj.PutObject(context.Background(), bucketName, objectName, mustGetPutObjReader(t, bytes.NewReader(data), int64(len(data)), metadata["etag"], ""), ObjectOptions{UserDefined: metadata})
 	if err != nil {
 		t.Fatalf("Was not able to upload an object, %v", err)
 	}
@@ -1522,16 +1485,13 @@ func TestWebCheckAuthorization(t *testing.T) {
 	webRPCs := []string{
 		"ServerInfo", "StorageInfo", "MakeBucket",
 		"ListBuckets", "ListObjects", "RemoveObject",
-		"GenerateAuth", "SetAuth", "GetAuth",
+		"GenerateAuth", "SetAuth",
 		"GetBucketPolicy", "SetBucketPolicy", "ListAllBucketPolicies",
 		"PresignedGet",
 	}
 	for _, rpcCall := range webRPCs {
-		args := &AuthArgs{
-			RPCVersion: globalRPCAPIVersion,
-		}
 		reply := &WebGenericRep{}
-		req, nerr := newTestWebRPCRequest("Web."+rpcCall, "Bearer fooauthorization", args)
+		req, nerr := newTestWebRPCRequest("Web."+rpcCall, "Bearer fooauthorization", &WebGenericArgs{})
 		if nerr != nil {
 			t.Fatalf("Test %s: Failed to create HTTP request: <ERROR> %v", rpcCall, nerr)
 		}
@@ -1559,7 +1519,7 @@ func TestWebCheckAuthorization(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("Expected the response status to be 403, but instead found `%d`", rec.Code)
 	}
-	resp := string(rec.Body.Bytes())
+	resp := rec.Body.String()
 	if !strings.EqualFold(resp, errAuthentication.Error()) {
 		t.Fatalf("Unexpected error message, expected: %s, found: `%s`", errAuthentication, resp)
 	}
@@ -1580,7 +1540,7 @@ func TestWebCheckAuthorization(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("Expected the response status to be 403, but instead found `%d`", rec.Code)
 	}
-	resp = string(rec.Body.Bytes())
+	resp = rec.Body.String()
 	if !strings.EqualFold(resp, errAuthentication.Error()) {
 		t.Fatalf("Unexpected error message, expected: `%s`, found: `%s`", errAuthentication, resp)
 	}
@@ -1634,7 +1594,7 @@ func TestWebObjectLayerFaultyDisks(t *testing.T) {
 		RepArgs    interface{}
 	}{
 		{"MakeBucket", MakeBucketArgs{BucketName: bucketName}, WebGenericRep{}},
-		{"ListBuckets", AuthArgs{RPCVersion: globalRPCAPIVersion}, ListBucketsRep{}},
+		{"ListBuckets", WebGenericArgs{}, ListBucketsRep{}},
 		{"ListObjects", ListObjectsArgs{BucketName: bucketName, Prefix: ""}, ListObjectsRep{}},
 		{"GetBucketPolicy", GetBucketPolicyArgs{BucketName: bucketName, Prefix: ""}, GetBucketPolicyRep{}},
 		{"SetBucketPolicy", SetBucketPolicyWebArgs{BucketName: bucketName, Prefix: "", Policy: "none"}, WebGenericRep{}},
@@ -1658,9 +1618,7 @@ func TestWebObjectLayerFaultyDisks(t *testing.T) {
 	}
 
 	// Test Web.StorageInfo
-	storageInfoRequest := AuthArgs{
-		RPCVersion: globalRPCAPIVersion,
-	}
+	storageInfoRequest := &WebGenericArgs{}
 	storageInfoReply := &StorageInfoRep{}
 	req, err := newTestWebRPCRequest("Web.StorageInfo", authorization, storageInfoRequest)
 	if err != nil {

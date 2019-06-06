@@ -1,5 +1,5 @@
 /*
- * Minio Cloud Storage, (C) 2018 Minio, Inc.
+ * MinIO Cloud Storage, (C) 2018 MinIO, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,15 +20,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"path"
 	"strings"
 	"sync"
-	"time"
 
-	miniogopolicy "github.com/minio/minio-go/pkg/policy"
-	"github.com/minio/minio-go/pkg/set"
+	miniogopolicy "github.com/minio/minio-go/v6/pkg/policy"
+	"github.com/minio/minio-go/v6/pkg/set"
 	"github.com/minio/minio/cmd/logger"
+	"github.com/minio/minio/pkg/event"
 	"github.com/minio/minio/pkg/handlers"
 	"github.com/minio/minio/pkg/policy"
 )
@@ -59,6 +60,11 @@ func (sys *PolicySys) removeDeletedBuckets(bucketInfos []BucketInfo) {
 
 // Set - sets policy to given bucket name.  If policy is empty, existing policy is removed.
 func (sys *PolicySys) Set(bucketName string, policy policy.Policy) {
+	if globalIsGateway {
+		// Set policy is a non-op under gateway mode.
+		return
+	}
+
 	sys.Lock()
 	defer sys.Unlock()
 
@@ -82,9 +88,21 @@ func (sys *PolicySys) IsAllowed(args policy.Args) bool {
 	sys.RLock()
 	defer sys.RUnlock()
 
-	// If policy is available for given bucket, check the policy.
-	if p, found := sys.bucketPolicyMap[args.BucketName]; found {
-		return p.IsAllowed(args)
+	if globalIsGateway {
+		// When gateway is enabled, no cached value
+		// is used to validate bucket policies.
+		objAPI := newObjectLayerFn()
+		if objAPI != nil {
+			config, err := objAPI.GetBucketPolicy(context.Background(), args.BucketName)
+			if err == nil {
+				return config.IsAllowed(args)
+			}
+		}
+	} else {
+		// If policy is available for given bucket, check the policy.
+		if p, found := sys.bucketPolicyMap[args.BucketName]; found {
+			return p.IsAllowed(args)
+		}
 	}
 
 	// As policy is not available for given bucket name, returns IsOwner i.e.
@@ -133,21 +151,11 @@ func (sys *PolicySys) Init(objAPI ObjectLayer) error {
 		return errInvalidArgument
 	}
 
-	defer func() {
-		// Refresh PolicySys in background.
-		go func() {
-			ticker := time.NewTicker(globalRefreshBucketPolicyInterval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-globalServiceDoneCh:
-					return
-				case <-ticker.C:
-					sys.refresh(objAPI)
-				}
-			}
-		}()
-	}()
+	// In gateway mode, we don't need to load the policies
+	// from the backend.
+	if globalIsGateway {
+		return nil
+	}
 
 	doneCh := make(chan struct{})
 	defer close(doneCh)
@@ -156,23 +164,20 @@ func (sys *PolicySys) Init(objAPI ObjectLayer) error {
 	// the following reasons:
 	//  - Read quorum is lost just after the initialization
 	//    of the object layer.
-	retryTimerCh := newRetryTimerSimple(doneCh)
-	for {
-		select {
-		case _ = <-retryTimerCh:
-			// Load PolicySys once during boot.
-			if err := sys.refresh(objAPI); err != nil {
-				if err == errDiskNotFound ||
-					strings.Contains(err.Error(), InsufficientReadQuorum{}.Error()) ||
-					strings.Contains(err.Error(), InsufficientWriteQuorum{}.Error()) {
-					logger.Info("Waiting for policy subsystem to be initialized..")
-					continue
-				}
-				return err
+	for range newRetryTimerSimple(doneCh) {
+		// Load PolicySys once during boot.
+		if err := sys.refresh(objAPI); err != nil {
+			if err == errDiskNotFound ||
+				strings.Contains(err.Error(), InsufficientReadQuorum{}.Error()) ||
+				strings.Contains(err.Error(), InsufficientWriteQuorum{}.Error()) {
+				logger.Info("Waiting for policy subsystem to be initialized..")
+				continue
 			}
-			return nil
+			return err
 		}
+		break
 	}
+	return nil
 }
 
 // NewPolicySys - creates new policy system.
@@ -182,8 +187,25 @@ func NewPolicySys() *PolicySys {
 	}
 }
 
-func getConditionValues(request *http.Request, locationConstraint string) map[string][]string {
-	args := make(map[string][]string)
+func getConditionValues(request *http.Request, locationConstraint string, username string) map[string][]string {
+	currTime := UTCNow()
+	principalType := func() string {
+		if username != "" {
+			return "User"
+		}
+		return "Anonymous"
+	}()
+	args := map[string][]string{
+		"CurrenTime":      {currTime.Format(event.AMZTimeFormat)},
+		"EpochTime":       {fmt.Sprintf("%d", currTime.Unix())},
+		"principaltype":   {principalType},
+		"SecureTransport": {fmt.Sprintf("%t", request.TLS != nil)},
+		"SourceIp":        {handlers.GetSourceIP(request)},
+		"UserAgent":       {request.UserAgent()},
+		"Referer":         {request.Referer()},
+		"userid":          {username},
+		"username":        {username},
+	}
 
 	for key, values := range request.Header {
 		if existingValues, found := args[key]; found {
@@ -200,8 +222,6 @@ func getConditionValues(request *http.Request, locationConstraint string) map[st
 			args[key] = values
 		}
 	}
-
-	args["SourceIp"] = []string{handlers.GetSourceIP(request)}
 
 	if locationConstraint != "" {
 		args["LocationConstraint"] = []string{locationConstraint}
